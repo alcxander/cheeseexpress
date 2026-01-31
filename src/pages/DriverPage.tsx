@@ -9,6 +9,7 @@ import {
   geocodeAddress,
   optimizeRoute,
 } from '../lib/mapbox'
+import { getDebugEntries } from '../lib/debug'
 import {
   clearRouteState,
   defaultRouteState,
@@ -21,6 +22,7 @@ import type { AddressEntry, RouteState, Stop } from '../types'
 const MAX_ADDRESSES = 30
 const ARRIVAL_THRESHOLD_METERS = 50
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? ''
+const DEFAULT_CENTER: [number, number] = [-6.3941, 53.3242]
 
 const getCurrentPosition = () =>
   new Promise<[number, number]>((resolve, reject) => {
@@ -164,6 +166,8 @@ const DriverPage = () => {
   )
   const [nextLegGeometry, setNextLegGeometry] =
     useState<GeoJSON.LineString | null>(null)
+  const [debugOpen, setDebugOpen] = useState(false)
+  const [debugEntries, setDebugEntries] = useState(getDebugEntries())
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
@@ -180,12 +184,19 @@ const DriverPage = () => {
   }, [routeState])
 
   useEffect(() => {
+    const refresh = () => setDebugEntries(getDebugEntries())
+    const handler = () => refresh()
+    window.addEventListener('cheese-debug', handler as EventListener)
+    return () => window.removeEventListener('cheese-debug', handler as EventListener)
+  }, [])
+
+  useEffect(() => {
     if (!MAPBOX_TOKEN || mapRef.current || !mapContainerRef.current) return
     mapboxgl.accessToken = MAPBOX_TOKEN
     const map = new mapboxgl.Map({
       container: mapContainerRef.current,
       style: 'mapbox://styles/mapbox/streets-v12',
-      center: routeState.mapView?.center ?? [-96, 37.8],
+      center: routeState.mapView?.center ?? DEFAULT_CENTER,
       zoom: routeState.mapView?.zoom ?? 12,
       bearing: routeState.mapView?.bearing ?? 0,
       pitch: routeState.mapView?.pitch ?? 0,
@@ -463,7 +474,7 @@ const DriverPage = () => {
       updateLineSource(map, 'route-line', null)
       updateLineSource(map, 'next-leg', null)
       updateStopMarkers(map, markersRef, [], 0)
-      map.easeTo({ center: [-96, 37.8], zoom: 12, bearing: 0, pitch: 0 })
+      map.easeTo({ center: DEFAULT_CENTER, zoom: 12, bearing: 0, pitch: 0 })
     }
   }
 
@@ -636,6 +647,43 @@ const DriverPage = () => {
             Current location: {currentPosition[1].toFixed(5)},{' '}
             {currentPosition[0].toFixed(5)}
           </div>
+        )}
+      </section>
+
+      <section className="panel">
+        <div className="panel-row">
+          <h2>Debug</h2>
+          <button
+            className="secondary debug-toggle"
+            onClick={() => setDebugOpen((prev) => !prev)}
+          >
+            {debugOpen ? 'Hide' : 'Show'}
+          </button>
+        </div>
+        {debugOpen ? (
+          <div className="debug-panel">
+            {debugEntries.length === 0 && (
+              <p className="muted">No debug events yet.</p>
+            )}
+            {debugEntries.map((entry) => (
+              <div key={`${entry.time}-${entry.message}`} className="debug-entry">
+                <div className={entry.type === 'error' ? 'debug-error' : 'debug-info'}>
+                  {entry.type.toUpperCase()}
+                </div>
+                <div>
+                  <div className="debug-message">{entry.message}</div>
+                  <div className="muted">{entry.time}</div>
+                  {entry.details && (
+                    <pre className="debug-details">
+                      {JSON.stringify(entry.details, null, 2)}
+                    </pre>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="muted">Open to see Mapbox request details.</p>
         )}
       </section>
     </div>

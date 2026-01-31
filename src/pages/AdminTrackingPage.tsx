@@ -11,6 +11,7 @@ type DriverLocation = {
 
 const ACTIVE_WINDOW_MS = 10 * 60 * 1000
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? ''
+const DEFAULT_CENTER: [number, number] = [-6.3941, 53.3242]
 
 const AdminTrackingPage = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -24,8 +25,8 @@ const AdminTrackingPage = () => {
     const map = new mapboxgl.Map({
       container: mapContainerRef.current,
       style: 'mapbox://styles/mapbox/streets-v12',
-      center: [-96, 37.8],
-      zoom: 3,
+      center: DEFAULT_CENTER,
+      zoom: 11,
     })
     map.addControl(new mapboxgl.NavigationControl(), 'bottom-right')
     map.on('error', (event) => {

@@ -211,6 +211,50 @@ button.danger {
   font-size: 0.95rem;
 }
 
+.debug-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.debug-entry {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: 12px;
+  padding: 10px;
+  border-radius: 12px;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+}
+
+.debug-info {
+  color: #38bdf8;
+  font-weight: 700;
+}
+
+.debug-error {
+  color: #f43f5e;
+  font-weight: 700;
+}
+
+.debug-message {
+  font-weight: 600;
+}
+
+.debug-details {
+  margin: 8px 0 0;
+  font-size: 0.75rem;
+  color: #cbd5f5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.debug-toggle {
+  min-width: 90px;
+}
+
 .stop-marker {
   width: 28px;
   height: 28px;

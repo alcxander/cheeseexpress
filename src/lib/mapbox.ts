@@ -1,4 +1,5 @@
 import type { AddressEntry, RouteLeg, Stop } from '../types'
+import { logDebug } from './debug'
 
 export const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string | undefined
 export const MAPBOX_PROXY_URL = import.meta.env
@@ -25,12 +26,50 @@ type OptimizationResponse = {
   }>
 }
 
-const fetchJson = async <T>(url: string): Promise<T> => {
+const sanitizeUrl = (url: string) => {
+  try {
+    const parsed = new URL(url)
+    if (parsed.searchParams.has('access_token')) {
+      parsed.searchParams.set('access_token', 'redacted')
+    }
+    return parsed.toString()
+  } catch {
+    return url.replace(/access_token=([^&]+)/, 'access_token=redacted')
+  }
+}
+
+const fetchJson = async <T>(url: string, label: string): Promise<T> => {
+  const safeUrl = sanitizeUrl(url)
+  const startedAt = Date.now()
   const response = await fetch(url)
   if (!response.ok) {
-    throw new Error('Network error')
+    const body = await response.text()
+    logDebug({
+      type: 'error',
+      message: `${label} failed (${response.status})`,
+      details: {
+        url: safeUrl,
+        status: response.status,
+        body: body.slice(0, 400),
+        durationMs: Date.now() - startedAt,
+      },
+    })
+    if (response.status === 401 || response.status === 403) {
+      throw new Error('Mapbox authorization failed')
+    }
+    throw new Error(`Network error (${response.status})`)
   }
-  return (await response.json()) as T
+  const text = await response.text()
+  logDebug({
+    type: 'info',
+    message: `${label} ok (${response.status})`,
+    details: {
+      url: safeUrl,
+      status: response.status,
+      durationMs: Date.now() - startedAt,
+    },
+  })
+  return JSON.parse(text) as T
 }
 
 export const fetchAutocomplete = async (query: string) => {
@@ -41,7 +80,7 @@ export const fetchAutocomplete = async (query: string) => {
   const url = MAPBOX_PROXY_URL
     ? `${MAPBOX_PROXY_URL.replace(/\/$/, '')}/geocoding?query=${encoded}&autocomplete=true&limit=5&country=ie`
     : `https://api.mapbox.com/geocoding/v5/mapbox.places/${encoded}.json?autocomplete=true&limit=5&country=ie&access_token=${MAPBOX_TOKEN}`
-  const data = await fetchJson<{ features: MapboxFeature[] }>(url)
+  const data = await fetchJson<{ features: MapboxFeature[] }>(url, 'Autocomplete')
   return data.features.map((feature) => ({
     id: feature.id,
     label: feature.place_name,
@@ -57,7 +96,7 @@ export const geocodeAddress = async (query: string) => {
   const url = MAPBOX_PROXY_URL
     ? `${MAPBOX_PROXY_URL.replace(/\/$/, '')}/geocoding?query=${encoded}&limit=1&country=ie`
     : `https://api.mapbox.com/geocoding/v5/mapbox.places/${encoded}.json?limit=1&country=ie&access_token=${MAPBOX_TOKEN}`
-  const data = await fetchJson<{ features: MapboxFeature[] }>(url)
+  const data = await fetchJson<{ features: MapboxFeature[] }>(url, 'Geocoding')
   const feature = data.features[0]
   if (!feature) return null
   return {
@@ -79,7 +118,7 @@ export const optimizeRoute = async (
         coords
       )}&roundtrip=false&source=first&geometries=geojson&overview=full&steps=false`
     : `https://api.mapbox.com/optimized-trips/v1/mapbox/driving/${coords}?roundtrip=false&source=first&geometries=geojson&overview=full&steps=false&access_token=${MAPBOX_TOKEN}`
-  const data = await fetchJson<OptimizationResponse>(url)
+  const data = await fetchJson<OptimizationResponse>(url, 'Optimization')
   if (data.code && data.code !== 'Ok') {
     throw new Error(
       data.message || 'Mapbox optimization is unavailable for this token'
@@ -136,7 +175,7 @@ export const fetchNextLegGeometry = async (
     : `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?geometries=geojson&overview=full&steps=false&access_token=${MAPBOX_TOKEN}`
   const data = await fetchJson<{
     routes: Array<{ geometry: GeoJSON.LineString }>
-  }>(url)
+  }>(url, 'Directions')
   if (!data.routes?.length) return null
   return data.routes[0].geometry
 }
