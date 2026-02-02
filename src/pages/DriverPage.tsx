@@ -784,7 +784,7 @@ const DriverPage = () => {
 
         <div className="panel-actions">
           <button
-            onClick={handleGenerateRoute}
+            onClick={() => handleGenerateRoute()}
             disabled={isGenerating || routeState.addresses.length === 0}
           >
             {isGenerating ? 'Generating...' : 'Generate Route'}
