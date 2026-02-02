@@ -157,6 +157,9 @@ const DriverPage = () => {
   const [importValue, setImportValue] = useState('')
   const [importStatus, setImportStatus] = useState<string | null>(null)
   const [importOpen, setImportOpen] = useState(false)
+  const [pendingImportGenerate, setPendingImportGenerate] = useState<
+    AddressEntry[] | null
+  >(null)
   const [backupStartValue, setBackupStartValue] = useState(
     routeState.backupStartLabel
   )
@@ -575,7 +578,7 @@ const DriverPage = () => {
         return
       }
       setImportStatus('Import completed. Generating route...')
-      await handleGenerateRoute(imported)
+      setPendingImportGenerate(imported)
     } catch (error) {
       setImportStatus((error as Error).message)
     }
@@ -634,6 +637,12 @@ const DriverPage = () => {
       setImportOpen(true)
     }
   }, [])
+
+  useEffect(() => {
+    if (!pendingImportGenerate) return
+    void handleGenerateRoute(pendingImportGenerate)
+    setPendingImportGenerate(null)
+  }, [pendingImportGenerate])
 
   const orderedStops = routeState.stops
   const totalTravelTime = formatDuration(routeState.totalDuration)
