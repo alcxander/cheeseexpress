@@ -4,6 +4,8 @@ import { logDebug } from './debug'
 export const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string | undefined
 export const MAPBOX_PROXY_URL = import.meta.env
   .VITE_MAPBOX_PROXY_URL as string | undefined
+export const GEOAPIFY_PROXY_URL = import.meta.env
+  .VITE_GEOAPIFY_PROXY_URL as string | undefined
 
 type MapboxFeature = {
   id: string
@@ -83,6 +85,41 @@ const fetchJson = async <T>(url: string, label: string): Promise<T> => {
   return JSON.parse(text) as T
 }
 
+const fetchJsonWithInit = async <T>(
+  url: string,
+  label: string,
+  init: RequestInit
+): Promise<T> => {
+  const safeUrl = sanitizeUrl(url)
+  const startedAt = Date.now()
+  const response = await fetch(url, init)
+  if (!response.ok) {
+    const body = await response.text()
+    logDebug({
+      type: 'error',
+      message: `${label} failed (${response.status})`,
+      details: {
+        url: safeUrl,
+        status: response.status,
+        body: body.slice(0, 400),
+        durationMs: Date.now() - startedAt,
+      },
+    })
+    throw new Error(`Network error (${response.status})`)
+  }
+  const text = await response.text()
+  logDebug({
+    type: 'info',
+    message: `${label} ok (${response.status})`,
+    details: {
+      url: safeUrl,
+      status: response.status,
+      durationMs: Date.now() - startedAt,
+    },
+  })
+  return JSON.parse(text) as T
+}
+
 export const fetchAutocomplete = async (query: string) => {
   if (!MAPBOX_TOKEN && !MAPBOX_PROXY_URL) {
     throw new Error('Mapbox token missing')
@@ -120,6 +157,9 @@ export const optimizeRoute = async (
   start: [number, number],
   addresses: AddressEntry[]
 ) => {
+  if (GEOAPIFY_PROXY_URL) {
+    return optimizeRouteWithGeoapify(start, addresses)
+  }
   if (!MAPBOX_TOKEN && !MAPBOX_PROXY_URL) {
     throw new Error('Mapbox token missing')
   }
@@ -176,6 +216,118 @@ export const optimizeRoute = async (
   }
 }
 
+const optimizeRouteWithGeoapify = async (
+  start: [number, number],
+  addresses: AddressEntry[]
+) => {
+  if (!GEOAPIFY_PROXY_URL) {
+    throw new Error('Geoapify proxy not configured')
+  }
+  if (!addresses.length) {
+    throw new Error('No route found')
+  }
+  const coords = [start, ...addresses.map((entry) => entry.coords!)]
+  const url = `${GEOAPIFY_PROXY_URL.replace(/\/$/, '')}/optimize`
+  const data = await fetchJsonWithInit<{
+    order?: number[]
+    waypoints?: Array<{ location: [number, number] }>
+    features?: Array<{
+      properties?: { waypoints?: Array<{ location: [number, number] }> }
+    }>
+  }>(url, 'Geoapify Optimization', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ coordinates: coords }),
+  })
+
+  const order =
+    data.order ??
+    extractOrderFromWaypoints(coords, data.waypoints) ??
+    extractOrderFromWaypoints(coords, data.features?.[0]?.properties?.waypoints)
+  const orderedIndices =
+    order && order.length === coords.length
+      ? order
+      : coords.map((_, index) => index)
+  const orderedCoords = orderedIndices.map((index) => coords[index])
+
+  const directions = await getDirectionsForCoords(orderedCoords)
+  const stops = orderedIndices
+    .filter((index) => index !== 0)
+    .map((index) => {
+      const address = addresses[index - 1]
+      return {
+        id: address.id,
+        label: address.label,
+        coords: address.coords!,
+      } as Stop
+    })
+
+  return {
+    geometry: directions.geometry,
+    stops,
+    legs: directions.legs,
+    totalDistance: directions.totalDistance,
+    totalDuration: directions.totalDuration,
+  }
+}
+
+const extractOrderFromWaypoints = (
+  coords: [number, number][],
+  waypoints?: Array<{ location: [number, number] }>
+) => {
+  if (!waypoints?.length) return null
+  return waypoints.map((waypoint) =>
+    findClosestIndex(coords, waypoint.location)
+  )
+}
+
+const findClosestIndex = (
+  coords: [number, number][],
+  target: [number, number]
+) => {
+  let bestIndex = 0
+  let bestDistance = Number.POSITIVE_INFINITY
+  coords.forEach((coord, index) => {
+    const dx = coord[0] - target[0]
+    const dy = coord[1] - target[1]
+    const distance = dx * dx + dy * dy
+    if (distance < bestDistance) {
+      bestDistance = distance
+      bestIndex = index
+    }
+  })
+  return bestIndex
+}
+
+const getDirectionsForCoords = async (coords: [number, number][]) => {
+  const serialized = coords.map((coord) => coord.join(',')).join(';')
+  const url = MAPBOX_PROXY_URL
+    ? `${MAPBOX_PROXY_URL.replace(/\/$/, '')}/directions?coordinates=${encodeURIComponent(
+        serialized
+      )}&geometries=geojson&overview=full&steps=false`
+    : `https://api.mapbox.com/directions/v5/mapbox/driving/${serialized}?geometries=geojson&overview=full&steps=false&access_token=${MAPBOX_TOKEN}`
+  const data = await fetchJson<DirectionsResponse>(
+    url,
+    'Directions (Geoapify order)'
+  )
+  if (data.code && data.code !== 'Ok') {
+    throw new Error(data.message || 'Directions failed')
+  }
+  if (!data.routes?.length) throw new Error('No route found')
+  const route = data.routes[0]
+  const legs: RouteLeg[] =
+    route.legs?.map((leg) => ({
+      distance: leg.distance,
+      duration: leg.duration,
+    })) ?? []
+  return {
+    geometry: route.geometry,
+    legs,
+    totalDistance: route.distance,
+    totalDuration: route.duration,
+  }
+}
+
 const fallbackDirectionsRoute = async (
   start: [number, number],
   addresses: AddressEntry[]
@@ -183,35 +335,21 @@ const fallbackDirectionsRoute = async (
   if (!addresses.length) {
     throw new Error('No route found')
   }
-  const coords = [start, ...addresses.map((entry) => entry.coords!)].join(';')
-  const url = MAPBOX_PROXY_URL
-    ? `${MAPBOX_PROXY_URL.replace(/\/$/, '')}/directions?coordinates=${encodeURIComponent(
-        coords
-      )}&geometries=geojson&overview=full&steps=false`
-    : `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?geometries=geojson&overview=full&steps=false&access_token=${MAPBOX_TOKEN}`
-  const data = await fetchJson<DirectionsResponse>(url, 'Directions (fallback)')
-  if (data.code && data.code !== 'Ok') {
-    throw new Error(data.message || 'Directions fallback failed')
-  }
-  if (!data.routes?.length) throw new Error('No route found')
-
+  const directions = await getDirectionsForCoords(
+    [start, ...addresses.map((entry) => entry.coords!)]
+  )
   const stops = addresses.map((entry) => ({
     id: entry.id,
     label: entry.label,
     coords: entry.coords!,
   })) as Stop[]
-  const legs: RouteLeg[] =
-    data.routes[0].legs?.map((leg) => ({
-      distance: leg.distance,
-      duration: leg.duration,
-    })) ?? []
 
   return {
-    geometry: data.routes[0].geometry,
+    geometry: directions.geometry,
     stops,
-    legs,
-    totalDistance: data.routes[0].distance,
-    totalDuration: data.routes[0].duration,
+    legs: directions.legs,
+    totalDistance: directions.totalDistance,
+    totalDuration: directions.totalDuration,
   }
 }
 
