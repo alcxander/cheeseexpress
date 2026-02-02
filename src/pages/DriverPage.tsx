@@ -522,7 +522,12 @@ const DriverPage = () => {
   const orderedStops = routeState.stops
   const totalTravelTime = formatDuration(routeState.totalDuration)
   const etaByStop = orderedStops.map((_, index) => {
-    const remainingLegs = routeState.legs.slice(index + 1)
+    if (index <= routeState.currentStopIndex) {
+      return formatDuration(0)
+    }
+    const startLegIndex = routeState.currentStopIndex + 1
+    const targetLegIndex = index + 1
+    const remainingLegs = routeState.legs.slice(startLegIndex, targetLegIndex + 1)
     const remaining = remainingLegs.reduce((sum, leg) => sum + leg.duration, 0)
     return formatDuration(remaining)
   })
