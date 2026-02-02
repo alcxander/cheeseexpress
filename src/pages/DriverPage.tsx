@@ -156,6 +156,7 @@ const DriverPage = () => {
   const [manualMode, setManualMode] = useState(false)
   const [importValue, setImportValue] = useState('')
   const [importStatus, setImportStatus] = useState<string | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
   const [backupStartValue, setBackupStartValue] = useState(
     routeState.backupStartLabel
   )
@@ -665,21 +666,33 @@ const DriverPage = () => {
           </button>
         </div>
 
-        <div>
-          <label className="label">Import route JSON</label>
-          <textarea
-            className="textarea"
-            rows={5}
-            value={importValue}
-            onChange={(event) => setImportValue(event.target.value)}
-            placeholder="Paste JSON payload here"
-          />
-          <div className="panel-actions">
-            <button className="secondary" onClick={handleImportPayload}>
-              Import & Generate
+        <div className="import-panel">
+          <div className="panel-row">
+            <label className="label">Import route JSON</label>
+            <button
+              className="secondary import-toggle"
+              onClick={() => setImportOpen((prev) => !prev)}
+            >
+              {importOpen ? 'Hide' : 'Show'}
             </button>
-            {importStatus && <div className="muted">{importStatus}</div>}
           </div>
+          {importOpen && (
+            <>
+              <textarea
+                className="textarea"
+                rows={6}
+                value={importValue}
+                onChange={(event) => setImportValue(event.target.value)}
+                placeholder="Paste JSON payload here"
+              />
+              <div className="panel-actions">
+                <button className="secondary" onClick={handleImportPayload}>
+                  Import & Generate
+                </button>
+                {importStatus && <div className="muted">{importStatus}</div>}
+              </div>
+            </>
+          )}
         </div>
 
         {suggestions.length > 0 && (
