@@ -520,10 +520,11 @@ const DriverPage = () => {
   }
 
   const orderedStops = routeState.stops
+  const totalTravelTime = formatDuration(routeState.totalDuration)
   const etaByStop = orderedStops.map((_, index) => {
-    const legDurations = routeState.legs.slice(0, index + 1)
-    const total = legDurations.reduce((sum, leg) => sum + leg.duration, 0)
-    return formatDuration(total)
+    const remainingLegs = routeState.legs.slice(index + 1)
+    const remaining = remainingLegs.reduce((sum, leg) => sum + leg.duration, 0)
+    return formatDuration(remaining)
   })
 
   return (
@@ -657,7 +658,7 @@ const DriverPage = () => {
         {routeState.routeGeometry ? (
           <>
             <div className="stats">
-              <div>Total time: {formatDuration(routeState.totalDuration)}</div>
+              <div>Total travel time: {totalTravelTime}</div>
               <div>Total distance: {formatDistance(routeState.totalDistance)}</div>
             </div>
             <div className="address-list">
@@ -666,6 +667,9 @@ const DriverPage = () => {
                   <div>
                     <div className="address-title">
                       {index + 1}. {stop.label}
+                    </div>
+                    <div className="muted">
+                      Total travel time: {totalTravelTime}
                     </div>
                     <div className="muted">
                       ETA: {etaByStop[index]}
