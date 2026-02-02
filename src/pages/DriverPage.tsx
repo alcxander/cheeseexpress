@@ -154,6 +154,8 @@ const DriverPage = () => {
   >([])
   const [manualValue, setManualValue] = useState('')
   const [manualMode, setManualMode] = useState(false)
+  const [importValue, setImportValue] = useState('')
+  const [importStatus, setImportStatus] = useState<string | null>(null)
   const [backupStartValue, setBackupStartValue] = useState(
     routeState.backupStartLabel
   )
@@ -367,14 +369,15 @@ const DriverPage = () => {
     }))
   }
 
-  const handleGenerateRoute = async () => {
+  const handleGenerateRoute = async (override?: AddressEntry[]) => {
     setErrorMessage(null)
     setStatusMessage(null)
     if (!MAPBOX_TOKEN) {
       setErrorMessage('Mapbox token missing')
       return
     }
-    if (!routeState.addresses.length) {
+    const addressInput = override ?? routeState.addresses
+    if (!addressInput.length) {
       setErrorMessage('Add at least one address')
       return
     }
@@ -408,7 +411,7 @@ const DriverPage = () => {
       const geocoded: AddressEntry[] = []
       const failed: string[] = []
 
-      for (const entry of routeState.addresses) {
+      for (const entry of addressInput) {
         if (entry.coords) {
           geocoded.push(entry)
           continue
@@ -519,6 +522,79 @@ const DriverPage = () => {
     }
   }
 
+  const handleImportPayload = async () => {
+    setImportStatus(null)
+    setErrorMessage(null)
+    try {
+      const parsed = JSON.parse(importValue)
+      const response = await fetch(`${API_BASE}/api/route/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(parsed),
+      })
+      if (!response.ok) {
+        const text = await response.text()
+        throw new Error(text || 'Import failed')
+      }
+      const data = (await response.json()) as { addresses: AddressEntry[] }
+      const imported = data.addresses ?? []
+      const hasFailed = imported.some((entry) => entry.status === 'failed')
+      setRouteState((prev) => ({
+        ...prev,
+        addresses: imported,
+        routeGeometry: null,
+        stops: [],
+        legs: [],
+        stopOrder: [],
+        currentStopIndex: 0,
+        totalDistance: 0,
+        totalDuration: 0,
+      }))
+      if (hasFailed) {
+        setImportStatus('Import completed with unresolved addresses.')
+        return
+      }
+      setImportStatus('Import completed. Generating route...')
+      await handleGenerateRoute(imported)
+    } catch (error) {
+      setImportStatus((error as Error).message)
+    }
+  }
+
+  const handleRetryAddress = async (entry: AddressEntry) => {
+    if (!entry.label.trim()) return
+    try {
+      const result = await geocodeAddress(entry.label.trim())
+      if (!result) {
+        setRouteState((prev) => ({
+          ...prev,
+          addresses: prev.addresses.map((addr) =>
+            addr.id === entry.id
+              ? { ...addr, status: 'failed', note: 'Address not found. Edit to retry.' }
+              : addr
+          ),
+        }))
+        return
+      }
+      setRouteState((prev) => ({
+        ...prev,
+        addresses: prev.addresses.map((addr) =>
+          addr.id === entry.id
+            ? {
+                ...addr,
+                label: result.label,
+                coords: result.coords,
+                status: 'ok',
+                note: undefined,
+              }
+            : addr
+        ),
+      }))
+    } catch (error) {
+      setErrorMessage((error as Error).message)
+    }
+  }
+
   const orderedStops = routeState.stops
   const totalTravelTime = formatDuration(routeState.totalDuration)
   const etaByStop = orderedStops.map((_, index) => {
@@ -569,6 +645,23 @@ const DriverPage = () => {
           >
             {manualMode ? 'Hide manual' : 'Enter manually'}
           </button>
+        </div>
+
+        <div>
+          <label className="label">Import route JSON</label>
+          <textarea
+            className="textarea"
+            rows={5}
+            value={importValue}
+            onChange={(event) => setImportValue(event.target.value)}
+            placeholder="Paste JSON payload here"
+          />
+          <div className="panel-actions">
+            <button className="secondary" onClick={handleImportPayload}>
+              Import & Generate
+            </button>
+            {importStatus && <div className="muted">{importStatus}</div>}
+          </div>
         </div>
 
         {suggestions.length > 0 && (
@@ -632,7 +725,33 @@ const DriverPage = () => {
                 <div className="address-title">
                   {index + 1}. {entry.label}
                 </div>
-                {entry.manual && <div className="muted">Manual entry</div>}
+                {entry.status === 'failed' ? (
+                  <>
+                    <div className="muted">{entry.note ?? 'Needs review'}</div>
+                    <input
+                      value={entry.label}
+                      onChange={(event) =>
+                        setRouteState((prev) => ({
+                          ...prev,
+                          addresses: prev.addresses.map((addr) =>
+                            addr.id === entry.id
+                              ? { ...addr, label: event.target.value }
+                              : addr
+                          ),
+                        }))
+                      }
+                      placeholder="Edit address and retry"
+                    />
+                    <button
+                      className="secondary"
+                      onClick={() => handleRetryAddress(entry)}
+                    >
+                      Retry
+                    </button>
+                  </>
+                ) : (
+                  entry.manual && <div className="muted">Manual entry</div>
+                )}
               </div>
               <button
                 className="danger"

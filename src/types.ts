@@ -3,6 +3,8 @@ export type AddressEntry = {
   label: string
   manual: boolean
   coords?: [number, number]
+  status?: 'ok' | 'failed'
+  note?: string
 }
 
 export type Stop = {

@@ -40,6 +40,16 @@ input {
   color: #f8fafc;
 }
 
+textarea.textarea {
+  width: 100%;
+  padding: 0.8rem 0.9rem;
+  border-radius: 12px;
+  border: 1px solid #1e293b;
+  background: #0b1220;
+  color: #f8fafc;
+  resize: vertical;
+}
+
 input:disabled {
   opacity: 0.6;
 }
