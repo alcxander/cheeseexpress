@@ -177,6 +177,8 @@ const DriverPage = () => {
   )
   const [debugOpen, setDebugOpen] = useState(false)
   const [debugEntries, setDebugEntries] = useState(getDebugEntries())
+  const [debugToolsOpen, setDebugToolsOpen] = useState(false)
+  const [healthStatus, setHealthStatus] = useState<string | null>(null)
   const importHandledRef = useRef(false)
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
@@ -618,6 +620,23 @@ const DriverPage = () => {
     }
   }
 
+  const handleHealthCheck = async () => {
+    setHealthStatus('Checking...')
+    try {
+      const [mapboxRes, geoapifyRes] = await Promise.all([
+        fetch(`${API_BASE}/api/mapbox/health`),
+        fetch(`${API_BASE}/api/geoapify/health`),
+      ])
+      const mapboxText = await mapboxRes.text()
+      const geoapifyText = await geoapifyRes.text()
+      setHealthStatus(
+        `Mapbox: ${mapboxRes.status} ${mapboxText} | Geoapify: ${geoapifyRes.status} ${geoapifyText}`
+      )
+    } catch (error) {
+      setHealthStatus((error as Error).message)
+    }
+  }
+
   useEffect(() => {
     if (importHandledRef.current) return
     const url = new URL(window.location.href)
@@ -890,38 +909,58 @@ const DriverPage = () => {
 
       <section className="panel">
         <div className="panel-row">
-          <h2>Debug</h2>
+          <h2>Debug Tools</h2>
           <button
             className="secondary debug-toggle"
-            onClick={() => setDebugOpen((prev) => !prev)}
+            onClick={() => setDebugToolsOpen((prev) => !prev)}
           >
-            {debugOpen ? 'Hide' : 'Show'}
+            {debugToolsOpen ? 'Hide' : 'Show'}
           </button>
         </div>
-        {debugOpen ? (
-          <div className="debug-panel">
-            {debugEntries.length === 0 && (
-              <p className="muted">No debug events yet.</p>
-            )}
-            {debugEntries.map((entry) => (
-              <div key={`${entry.time}-${entry.message}`} className="debug-entry">
-                <div className={entry.type === 'error' ? 'debug-error' : 'debug-info'}>
-                  {entry.type.toUpperCase()}
-                </div>
-                <div>
-                  <div className="debug-message">{entry.message}</div>
-                  <div className="muted">{entry.time}</div>
-                  {entry.details && (
-                    <pre className="debug-details">
-                      {JSON.stringify(entry.details, null, 2)}
-                    </pre>
-                  )}
-                </div>
+        {!debugToolsOpen && <p className="muted">Collapsed by default.</p>}
+        {debugToolsOpen && (
+          <>
+            <div className="panel-actions">
+              <button className="secondary" onClick={handleHealthCheck}>
+                Health Check
+              </button>
+              {healthStatus && <div className="muted">{healthStatus}</div>}
+            </div>
+            <div className="panel-row">
+              <h3>Debug Log</h3>
+              <button
+                className="secondary debug-toggle"
+                onClick={() => setDebugOpen((prev) => !prev)}
+              >
+                {debugOpen ? 'Hide' : 'Show'}
+              </button>
+            </div>
+            {debugOpen ? (
+              <div className="debug-panel">
+                {debugEntries.length === 0 && (
+                  <p className="muted">No debug events yet.</p>
+                )}
+                {debugEntries.map((entry) => (
+                  <div key={`${entry.time}-${entry.message}`} className="debug-entry">
+                    <div className={entry.type === 'error' ? 'debug-error' : 'debug-info'}>
+                      {entry.type.toUpperCase()}
+                    </div>
+                    <div>
+                      <div className="debug-message">{entry.message}</div>
+                      <div className="muted">{entry.time}</div>
+                      {entry.details && (
+                        <pre className="debug-details">
+                          {JSON.stringify(entry.details, null, 2)}
+                        </pre>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        ) : (
-          <p className="muted">Open to see Mapbox request details.</p>
+            ) : (
+              <p className="muted">Open to see request details.</p>
+            )}
+          </>
         )}
       </section>
     </div>
