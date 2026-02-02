@@ -168,6 +168,9 @@ const DriverPage = () => {
   )
   const [nextLegGeometry, setNextLegGeometry] =
     useState<GeoJSON.LineString | null>(null)
+  const [liveNextLegDuration, setLiveNextLegDuration] = useState<number | null>(
+    null
+  )
   const [debugOpen, setDebugOpen] = useState(false)
   const [debugEntries, setDebugEntries] = useState(getDebugEntries())
 
@@ -316,14 +319,17 @@ const DriverPage = () => {
           } else if (Date.now() - lastNextLegUpdate.current > 6000) {
             lastNextLegUpdate.current = Date.now()
             try {
-              const geometry = await fetchNextLegGeometry(coords, nextStop.coords)
-              setNextLegGeometry(geometry)
+              const info = await fetchNextLegGeometry(coords, nextStop.coords)
+              setNextLegGeometry(info.geometry)
+              setLiveNextLegDuration(info.duration)
             } catch {
               setNextLegGeometry(null)
+              setLiveNextLegDuration(null)
             }
           }
         } else {
           setNextLegGeometry(null)
+          setLiveNextLegDuration(null)
         }
       },
       () => setLocationError('Unable to get location'),
@@ -331,6 +337,10 @@ const DriverPage = () => {
     )
     return () => navigator.geolocation.clearWatch(watchId)
   }, [driverName])
+
+  useEffect(() => {
+    setLiveNextLegDuration(null)
+  }, [routeState.currentStopIndex])
 
   const addSuggestedAddress = (entry: {
     id: string
@@ -598,14 +608,22 @@ const DriverPage = () => {
   const orderedStops = routeState.stops
   const totalTravelTime = formatDuration(routeState.totalDuration)
   const etaByStop = orderedStops.map((_, index) => {
-    if (index <= routeState.currentStopIndex) {
+    if (index < routeState.currentStopIndex) {
       return formatDuration(0)
     }
-    const startLegIndex = routeState.currentStopIndex + 1
-    const targetLegIndex = index + 1
-    const remainingLegs = routeState.legs.slice(startLegIndex, targetLegIndex + 1)
+    const baseDuration =
+      liveNextLegDuration ??
+      routeState.legs[routeState.currentStopIndex]?.duration ??
+      0
+    if (index === routeState.currentStopIndex) {
+      return formatDuration(baseDuration)
+    }
+    const remainingLegs = routeState.legs.slice(
+      routeState.currentStopIndex + 1,
+      index + 1
+    )
     const remaining = remainingLegs.reduce((sum, leg) => sum + leg.duration, 0)
-    return formatDuration(remaining)
+    return formatDuration(baseDuration + remaining)
   })
 
   return (

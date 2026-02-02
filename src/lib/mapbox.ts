@@ -215,10 +215,15 @@ const fallbackDirectionsRoute = async (
   }
 }
 
+export type NextLegInfo = {
+  geometry: GeoJSON.LineString | null
+  duration: number | null
+}
+
 export const fetchNextLegGeometry = async (
   start: [number, number],
   end: [number, number]
-) => {
+) : Promise<NextLegInfo> => {
   if (!MAPBOX_TOKEN && !MAPBOX_PROXY_URL) {
     throw new Error('Mapbox token missing')
   }
@@ -229,10 +234,10 @@ export const fetchNextLegGeometry = async (
       )}&geometries=geojson&overview=full&steps=false`
     : `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?geometries=geojson&overview=full&steps=false&access_token=${MAPBOX_TOKEN}`
   const data = await fetchJson<{
-    routes: Array<{ geometry: GeoJSON.LineString }>
+    routes: Array<{ geometry: GeoJSON.LineString; duration: number }>
   }>(url, 'Directions')
-  if (!data.routes?.length) return null
-  return data.routes[0].geometry
+  if (!data.routes?.length) return { geometry: null, duration: null }
+  return { geometry: data.routes[0].geometry, duration: data.routes[0].duration }
 }
 
 export const formatDuration = (seconds: number) => {
