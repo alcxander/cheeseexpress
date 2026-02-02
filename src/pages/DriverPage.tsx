@@ -174,6 +174,7 @@ const DriverPage = () => {
   )
   const [debugOpen, setDebugOpen] = useState(false)
   const [debugEntries, setDebugEntries] = useState(getDebugEntries())
+  const importHandledRef = useRef(false)
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
@@ -533,11 +534,19 @@ const DriverPage = () => {
     }
   }
 
-  const handleImportPayload = async () => {
+  const decodePayload = (payload: string) => {
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const pad = normalized.length % 4
+    const padded = pad ? normalized + '='.repeat(4 - pad) : normalized
+    const json = atob(padded)
+    return JSON.parse(json)
+  }
+
+  const handleImportPayload = async (payload?: unknown) => {
     setImportStatus(null)
     setErrorMessage(null)
     try {
-      const parsed = JSON.parse(importValue)
+      const parsed = payload ?? JSON.parse(importValue)
       const response = await fetch(`${API_BASE}/api/route/import`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -605,6 +614,26 @@ const DriverPage = () => {
       setErrorMessage((error as Error).message)
     }
   }
+
+  useEffect(() => {
+    if (importHandledRef.current) return
+    const url = new URL(window.location.href)
+    const payload = url.searchParams.get('payload')
+    if (!payload) return
+    try {
+      const decoded = decodePayload(payload)
+      importHandledRef.current = true
+      setImportValue(JSON.stringify(decoded, null, 2))
+      setImportOpen(true)
+      void handleImportPayload(decoded)
+      url.searchParams.delete('payload')
+      const nextPath = url.pathname === '/import' ? '/' : url.pathname
+      window.history.replaceState(null, '', `${nextPath}${url.search}`)
+    } catch (error) {
+      setImportStatus('Invalid import payload')
+      setImportOpen(true)
+    }
+  }, [])
 
   const orderedStops = routeState.stops
   const totalTravelTime = formatDuration(routeState.totalDuration)

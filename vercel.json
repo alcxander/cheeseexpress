@@ -1,5 +1,6 @@
 {
   "rewrites": [
-    { "source": "/admin/tracking", "destination": "/" }
+    { "source": "/admin/tracking", "destination": "/" },
+    { "source": "/import", "destination": "/" }
   ]
 }
