@@ -26,6 +26,17 @@ type OptimizationResponse = {
   }>
 }
 
+type DirectionsResponse = {
+  code?: string
+  message?: string
+  routes: Array<{
+    geometry: GeoJSON.LineString
+    legs: Array<{ distance: number; duration: number }>
+    distance: number
+    duration: number
+  }>
+}
+
 const sanitizeUrl = (url: string) => {
   try {
     const parsed = new URL(url)
@@ -120,11 +131,16 @@ export const optimizeRoute = async (
     : `https://api.mapbox.com/optimized-trips/v1/mapbox/driving/${coords}?roundtrip=false&source=first&geometries=geojson&overview=full&steps=false&access_token=${MAPBOX_TOKEN}`
   const data = await fetchJson<OptimizationResponse>(url, 'Optimization')
   if (data.code && data.code !== 'Ok') {
+    if (data.code === 'NotImplemented') {
+      return fallbackDirectionsRoute(start, addresses)
+    }
     throw new Error(
       data.message || 'Mapbox optimization is unavailable for this token'
     )
   }
-  if (!data.trips?.length) throw new Error('No route found')
+  if (!data.trips?.length) {
+    return fallbackDirectionsRoute(start, addresses)
+  }
 
   const waypointOrder = data.waypoints
     .map((waypoint, inputIndex) => ({
@@ -157,6 +173,45 @@ export const optimizeRoute = async (
     legs,
     totalDistance: data.trips[0].distance,
     totalDuration: data.trips[0].duration,
+  }
+}
+
+const fallbackDirectionsRoute = async (
+  start: [number, number],
+  addresses: AddressEntry[]
+) => {
+  if (!addresses.length) {
+    throw new Error('No route found')
+  }
+  const coords = [start, ...addresses.map((entry) => entry.coords!)].join(';')
+  const url = MAPBOX_PROXY_URL
+    ? `${MAPBOX_PROXY_URL.replace(/\/$/, '')}/directions?coordinates=${encodeURIComponent(
+        coords
+      )}&geometries=geojson&overview=full&steps=false`
+    : `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?geometries=geojson&overview=full&steps=false&access_token=${MAPBOX_TOKEN}`
+  const data = await fetchJson<DirectionsResponse>(url, 'Directions (fallback)')
+  if (data.code && data.code !== 'Ok') {
+    throw new Error(data.message || 'Directions fallback failed')
+  }
+  if (!data.routes?.length) throw new Error('No route found')
+
+  const stops = addresses.map((entry) => ({
+    id: entry.id,
+    label: entry.label,
+    coords: entry.coords!,
+  })) as Stop[]
+  const legs: RouteLeg[] =
+    data.routes[0].legs?.map((leg) => ({
+      distance: leg.distance,
+      duration: leg.duration,
+    })) ?? []
+
+  return {
+    geometry: data.routes[0].geometry,
+    stops,
+    legs,
+    totalDistance: data.routes[0].distance,
+    totalDuration: data.routes[0].duration,
   }
 }
 
