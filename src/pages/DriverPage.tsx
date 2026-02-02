@@ -381,29 +381,29 @@ const DriverPage = () => {
     setIsGenerating(true)
     try {
       let startLocation: [number, number] | null = null
+      let useFirstAddressAsStart = false
       try {
         startLocation = await getCurrentPosition()
       } catch {
-        if (!backupStartValue.trim()) {
-          setErrorMessage('Unable to get location. Add a backup start address.')
-          setIsGenerating(false)
-          return
+        if (backupStartValue.trim()) {
+          const backupResult = routeState.backupStartCoords
+            ? { coords: routeState.backupStartCoords, label: backupStartValue.trim() }
+            : await geocodeAddress(backupStartValue.trim())
+          if (!backupResult) {
+            setErrorMessage('Backup start address not found')
+            setIsGenerating(false)
+            return
+          }
+          startLocation = backupResult.coords
+          setRouteState((prev) => ({
+            ...prev,
+            backupStartLabel: backupStartValue.trim(),
+            backupStartCoords: backupResult.coords,
+          }))
+          setStatusMessage('Using backup start location')
+        } else {
+          useFirstAddressAsStart = true
         }
-        const backupResult = routeState.backupStartCoords
-          ? { coords: routeState.backupStartCoords, label: backupStartValue.trim() }
-          : await geocodeAddress(backupStartValue.trim())
-        if (!backupResult) {
-          setErrorMessage('Backup start address not found')
-          setIsGenerating(false)
-          return
-        }
-        startLocation = backupResult.coords
-        setRouteState((prev) => ({
-          ...prev,
-          backupStartLabel: backupStartValue.trim(),
-          backupStartCoords: backupResult.coords,
-        }))
-        setStatusMessage('Using backup start location')
       }
       const geocoded: AddressEntry[] = []
       const failed: string[] = []
@@ -431,16 +431,57 @@ const DriverPage = () => {
         return
       }
 
-      const optimized = await optimizeRoute(startLocation!, geocoded)
-      const stopOrder = optimized.stops.map((stop) => stop.id)
+      if (useFirstAddressAsStart) {
+        startLocation = geocoded[0].coords!
+      }
+
+      if (useFirstAddressAsStart && geocoded.length === 1) {
+        setRouteState((prev) => ({
+          ...prev,
+          addresses: geocoded,
+          stopOrder: [geocoded[0].id],
+          stops: [
+            {
+              id: geocoded[0].id,
+              label: geocoded[0].label,
+              coords: geocoded[0].coords!,
+            },
+          ],
+          currentStopIndex: 0,
+          routeGeometry: null,
+          legs: [],
+          totalDistance: 0,
+          totalDuration: 0,
+        }))
+        setStatusMessage('Route generated (start at first address)')
+        setIsGenerating(false)
+        return
+      }
+
+      const optimizationAddresses = useFirstAddressAsStart
+        ? geocoded.slice(1)
+        : geocoded
+      const optimized = await optimizeRoute(startLocation!, optimizationAddresses)
+      const startStop = useFirstAddressAsStart
+        ? {
+            id: geocoded[0].id,
+            label: geocoded[0].label,
+            coords: geocoded[0].coords!,
+          }
+        : null
+      const stops = startStop ? [startStop, ...optimized.stops] : optimized.stops
+      const legs = startStop
+        ? [{ distance: 0, duration: 0 }, ...optimized.legs]
+        : optimized.legs
+      const stopOrder = stops.map((stop) => stop.id)
       setRouteState((prev) => ({
         ...prev,
         addresses: geocoded,
         stopOrder,
-        stops: optimized.stops,
+        stops,
         currentStopIndex: 0,
         routeGeometry: optimized.geometry,
-        legs: optimized.legs,
+        legs,
         totalDistance: optimized.totalDistance,
         totalDuration: optimized.totalDuration,
       }))
