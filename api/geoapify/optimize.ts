@@ -35,6 +35,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     mode: 'drive',
     agents: [{ start_location: start }],
     shipments: stops.map((location) => ({
+      pickup: { location: start },
       delivery: { location },
     })),
   }
